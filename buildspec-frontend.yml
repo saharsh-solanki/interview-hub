@@ -1,0 +1,24 @@
+
+version: 0.2
+
+phases:
+  install:
+    runtime-versions:
+      nodejs: 22
+    commands:
+      - echo "Installing frontend dependencies"
+      - npm --prefix frontend ci
+
+  pre_build:
+    commands:
+      - echo "Starting frontend build"
+
+  build:
+    commands:
+      - npm --prefix frontend run build
+
+  post_build:
+    commands:
+      - echo "Deploying React build to S3"
+      - aws s3 sync frontend/dist/ "s3://$FRONTEND_BUCKET/" --delete --region "$AWS_DEFAULT_REGION"
+      - echo "Frontend deployment completed"

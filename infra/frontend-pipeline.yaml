@@ -1,0 +1,18 @@
+
+PipelineType: V2
+
+Triggers:
+  - ProviderType: CodeStarSourceConnection
+    GitConfiguration:
+      SourceActionName: Source
+      Push:
+        - Branches:
+            Includes:
+              - main
+          FilePaths:
+            Includes:
+              - frontend/**
+              - buildspec-frontend.yml
+              - infra/frontend.yaml
+              - infra/frontend-codebuild.yaml
+              - infra/frontend-pipeline.yaml

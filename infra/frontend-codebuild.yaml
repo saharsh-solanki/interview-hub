@@ -1,0 +1,84 @@
+
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Interview Hub frontend CodeBuild infrastructure
+
+Parameters:
+  FrontendBucketName:
+    Type: String
+    Description: Existing frontend S3 bucket
+
+Resources:
+
+  FrontendCodeBuildRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${AWS::StackName}-role'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: codebuild.amazonaws.com
+            Action: sts:AssumeRole
+
+      Policies:
+        - PolicyName: FrontendBuildPermissions
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: S3BucketAccess
+                Effect: Allow
+                Action:
+                  - s3:ListBucket
+                Resource: !Sub 'arn:${AWS::Partition}:s3:::${FrontendBucketName}'
+
+              - Sid: S3ObjectAccess
+                Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                  - s3:DeleteObject
+                Resource: !Sub 'arn:${AWS::Partition}:s3:::${FrontendBucketName}/*'
+
+              - Sid: CloudWatchLogs
+                Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: '*'
+
+  FrontendCodeBuildProject:
+    Type: AWS::CodeBuild::Project
+    Properties:
+      Name: interview-hub-frontend-build
+      Description: Build React frontend and deploy to S3
+
+      ServiceRole: !GetAtt FrontendCodeBuildRole.Arn
+
+      Environment:
+        Type: LINUX_CONTAINER
+        ComputeType: BUILD_GENERAL1_SMALL
+        Image: aws/codebuild/standard:7.0
+        PrivilegedMode: false
+        EnvironmentVariables:
+          - Name: FRONTEND_BUCKET
+            Value: !Ref FrontendBucketName
+          - Name: AWS_DEFAULT_REGION
+            Value: !Ref AWS::Region
+
+      Source:
+        Type: CODEPIPELINE
+        BuildSpec: buildspec-frontend.yml
+
+      Artifacts:
+        Type: CODEPIPELINE
+
+      TimeoutInMinutes: 15
+
+Outputs:
+  CodeBuildProjectName:
+    Value: !Ref FrontendCodeBuildProject
+
+  CodeBuildRoleArn:
+    Value: !GetAtt FrontendCodeBuildRole.Arn

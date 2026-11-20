@@ -17,6 +17,7 @@ Resources:
         AllowOrigins:
           - https://d301pk4yaczsrn.cloudfront.net
           - http://localhost:5173
+          - http://interview-hub-frontend-dev-frontendbucket-hejiz7fwnzko.s3-website-ap-southeast-2.amazonaws.com
         AllowMethods:
           - GET
           - POST

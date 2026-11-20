@@ -1,18 +1,195 @@
 
-PipelineType: V2
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Interview Hub Frontend CI/CD Pipeline
 
-Triggers:
-  - ProviderType: CodeStarSourceConnection
-    GitConfiguration:
-      SourceActionName: Source
-      Push:
-        - Branches:
-            Includes:
-              - main
-          FilePaths:
-            Includes:
-              - frontend/**
-              - buildspec-frontend.yml
-              - infra/frontend.yaml
-              - infra/frontend-codebuild.yaml
-              - infra/frontend-pipeline.yaml
+Parameters:
+  GitHubConnectionArn:
+    Type: String
+    Description: Existing GitHub connection ARN
+
+  GitHubRepository:
+    Type: String
+    Default: saharsh-solanki/interview-hub
+
+  GitHubBranch:
+    Type: String
+    Default: main
+
+  CodeBuildProjectName:
+    Type: String
+    Default: interview-hub-frontend-build
+
+  CodeBuildRoleName:
+    Type: String
+    Default: interview-hub-frontend-codebuild-dev-role
+
+Resources:
+
+  # S3 bucket used by CodePipeline to store source artifacts
+  PipelineArtifactBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+
+  # IAM role assumed by CodePipeline
+  PipelineRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: codepipeline.amazonaws.com
+            Action:
+              - sts:AssumeRole
+
+      Policies:
+        - PolicyName: FrontendPipelinePermissions
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+
+              # Access the existing GitHub connection
+              - Sid: GitHubConnectionAccess
+                Effect: Allow
+                Action:
+                  - codeconnections:UseConnection
+                Resource: !Ref GitHubConnectionArn
+
+              # Trigger and monitor CodeBuild
+              - Sid: CodeBuildAccess
+                Effect: Allow
+                Action:
+                  - codebuild:StartBuild
+                  - codebuild:BatchGetBuilds
+                Resource: !Sub
+                  - 'arn:${AWS::Partition}:codebuild:${AWS::Region}:${AWS::AccountId}:project/${ProjectName}'
+                  - ProjectName: !Ref CodeBuildProjectName
+
+              # Read metadata from the pipeline artifact bucket
+              - Sid: ArtifactBucketAccess
+                Effect: Allow
+                Action:
+                  - s3:GetBucketLocation
+                  - s3:GetBucketVersioning
+                  - s3:GetBucketAcl
+                  - s3:ListBucket
+                Resource: !GetAtt PipelineArtifactBucket.Arn
+
+              # Read and write source artifacts
+              - Sid: ArtifactObjectAccess
+                Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:GetObjectVersion
+                  - s3:PutObject
+                Resource: !Sub '${PipelineArtifactBucket.Arn}/*'
+
+  # Give the existing CodeBuild role access to source artifacts
+  CodeBuildArtifactAccess:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: FrontendPipelineArtifactAccess
+
+      Roles:
+        - !Ref CodeBuildRoleName
+
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+
+          - Sid: ReadArtifactBucket
+            Effect: Allow
+            Action:
+              - s3:GetBucketLocation
+              - s3:GetBucketVersioning
+              - s3:ListBucket
+            Resource: !GetAtt PipelineArtifactBucket.Arn
+
+          - Sid: ReadWriteArtifacts
+            Effect: Allow
+            Action:
+              - s3:GetObject
+              - s3:GetObjectVersion
+              - s3:PutObject
+            Resource: !Sub '${PipelineArtifactBucket.Arn}/*'
+
+  # The main automatic deployment pipeline
+  FrontendPipeline:
+    Type: AWS::CodePipeline::Pipeline
+    DependsOn:
+      - CodeBuildArtifactAccess
+    Properties:
+      Name: interview-hub-frontend-pipeline
+      RoleArn: !GetAtt PipelineRole.Arn
+
+      PipelineType: V2
+      ExecutionMode: SUPERSEDED
+
+      ArtifactStore:
+        Type: S3
+        Location: !Ref PipelineArtifactBucket
+
+      Stages:
+
+        # Stage 1: Fetch source code from GitHub
+        - Name: Source
+          Actions:
+            - Name: GitHubSource
+              ActionTypeId:
+                Category: Source
+                Owner: AWS
+                Provider: CodeStarSourceConnection
+                Version: '1'
+
+              Configuration:
+                ConnectionArn: !Ref GitHubConnectionArn
+                FullRepositoryId: !Ref GitHubRepository
+                BranchName: !Ref GitHubBranch
+                DetectChanges: 'true'
+                OutputArtifactFormat: CODE_ZIP
+
+              OutputArtifacts:
+                - Name: SourceArtifact
+
+              RunOrder: 1
+
+        # Stage 2: Build React and upload it to S3
+        - Name: BuildAndDeploy
+          Actions:
+            - Name: FrontendBuild
+              ActionTypeId:
+                Category: Build
+                Owner: AWS
+                Provider: CodeBuild
+                Version: '1'
+
+              Configuration:
+                ProjectName: !Ref CodeBuildProjectName
+
+              InputArtifacts:
+                - Name: SourceArtifact
+
+              RunOrder: 1
+
+Outputs:
+  PipelineName:
+    Description: Frontend pipeline name
+    Value: !Ref FrontendPipeline
+
+  PipelineArtifactBucketName:
+    Description: S3 bucket holding pipeline artifacts
+    Value: !Ref PipelineArtifactBucket
+
+  PipelineRoleArn:
+    Description: IAM role used by CodePipeline
+    Value: !GetAtt PipelineRole.Arn

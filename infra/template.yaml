@@ -31,6 +31,24 @@ Resources:
   InterviewHubFunction:
     Type: AWS::Serverless::Function
     Properties:
+      Environment:
+        Variables:
+          DB_HOST:
+            Fn::ImportValue: interview-hub-database-dev-DatabaseEndpoint
+          DB_PORT:
+            Fn::ImportValue: interview-hub-database-dev-DatabasePort
+          DB_NAME:
+            Fn::ImportValue: interview-hub-database-dev-DatabaseName
+          DB_SECRET_ARN:
+            Fn::ImportValue: interview-hub-database-dev-DatabaseSecretArn
+      Policies:
+      - AWSLambdaVPCAccessExecutionRole
+      - Statement:
+          - Effect: Allow
+            Action:
+              - secretsmanager:GetSecretValue
+            Resource:
+              Fn::ImportValue: interview-hub-database-dev-DatabaseSecretArn
       CodeUri: ../backend/
       Handler: app.main.handler
       Runtime: python3.12
@@ -49,6 +67,12 @@ Resources:
             ApiId: !Ref InterviewHubApi
             Path: /{proxy+}
             Method: ANY
+      VpcConfig:
+        SecurityGroupIds:
+          - Fn::ImportValue: interview-hub-network-dev-LambdaSecurityGroup
+        SubnetIds:
+          - Fn::ImportValue: interview-hub-network-dev-PrivateSubnetA
+          - Fn::ImportValue: interview-hub-network-dev-PrivateSubnetB
 
 Outputs:
   ApiUrl:

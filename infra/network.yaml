@@ -1,0 +1,188 @@
+
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Interview Hub - VPC and private database networking
+
+Parameters:
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues:
+      - dev
+      - staging
+      - prod
+
+Resources:
+
+  # ------------------------------------------
+  # VPC
+  # ------------------------------------------
+  InterviewHubVPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.20.0.0/16
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: !Sub interview-hub-${Environment}-vpc
+
+  # ------------------------------------------
+  # Private subnet in Availability Zone A
+  # ------------------------------------------
+  PrivateSubnetA:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref InterviewHubVPC
+      CidrBlock: 10.20.1.0/24
+      AvailabilityZone: !Select
+        - 0
+        - !GetAZs ''
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: Name
+          Value: !Sub interview-hub-${Environment}-private-a
+
+  # ------------------------------------------
+  # Private subnet in Availability Zone B
+  # ------------------------------------------
+  PrivateSubnetB:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref InterviewHubVPC
+      CidrBlock: 10.20.2.0/24
+      AvailabilityZone: !Select
+        - 1
+        - !GetAZs ''
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: Name
+          Value: !Sub interview-hub-${Environment}-private-b
+
+  # ------------------------------------------
+  # Private route table
+  # ------------------------------------------
+  PrivateRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref InterviewHubVPC
+      Tags:
+        - Key: Name
+          Value: !Sub interview-hub-${Environment}-private-rt
+
+  PrivateSubnetARouteAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivateSubnetA
+      RouteTableId: !Ref PrivateRouteTable
+
+  PrivateSubnetBRouteAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivateSubnetB
+      RouteTableId: !Ref PrivateRouteTable
+
+  # ------------------------------------------
+  # Lambda Security Group
+  # ------------------------------------------
+  LambdaSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for Interview Hub Lambda
+      VpcId: !Ref InterviewHubVPC
+      SecurityGroupEgress:
+        - IpProtocol: tcp
+          FromPort: 5432
+          ToPort: 5432
+          CidrIp: 10.20.0.0/16
+          Description: Allow PostgreSQL connections
+
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 10.20.0.0/16
+          Description: Allow private HTTPS to AWS endpoints
+
+      Tags:
+        - Key: Name
+          Value: !Sub interview-hub-${Environment}-lambda-sg
+
+  # ------------------------------------------
+  # PostgreSQL Security Group
+  # ------------------------------------------
+  DatabaseSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow PostgreSQL access from Lambda only
+      VpcId: !Ref InterviewHubVPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 5432
+          ToPort: 5432
+          SourceSecurityGroupId: !Ref LambdaSecurityGroup
+          Description: PostgreSQL access from Lambda
+
+      Tags:
+        - Key: Name
+          Value: !Sub interview-hub-${Environment}-database-sg
+
+  # ------------------------------------------
+  # Secrets Manager endpoint Security Group
+  # ------------------------------------------
+  EndpointSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: HTTPS access to Secrets Manager endpoint
+      VpcId: !Ref InterviewHubVPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          SourceSecurityGroupId: !Ref LambdaSecurityGroup
+
+  # ------------------------------------------
+  # Private Secrets Manager VPC endpoint
+  # ------------------------------------------
+  SecretsManagerEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      VpcId: !Ref InterviewHubVPC
+      VpcEndpointType: Interface
+      ServiceName: !Sub com.amazonaws.${AWS::Region}.secretsmanager
+      PrivateDnsEnabled: true
+      SubnetIds:
+        - !Ref PrivateSubnetA
+        - !Ref PrivateSubnetB
+      SecurityGroupIds:
+        - !Ref EndpointSecurityGroup
+
+Outputs:
+
+  VpcId:
+    Description: Interview Hub VPC ID
+    Value: !Ref InterviewHubVPC
+    Export:
+      Name: !Sub ${AWS::StackName}-VpcId
+
+  PrivateSubnetAId:
+    Description: Private subnet A
+    Value: !Ref PrivateSubnetA
+    Export:
+      Name: !Sub ${AWS::StackName}-PrivateSubnetA
+
+  PrivateSubnetBId:
+    Description: Private subnet B
+    Value: !Ref PrivateSubnetB
+    Export:
+      Name: !Sub ${AWS::StackName}-PrivateSubnetB
+
+  LambdaSecurityGroupId:
+    Description: Lambda security group
+    Value: !Ref LambdaSecurityGroup
+    Export:
+      Name: !Sub ${AWS::StackName}-LambdaSecurityGroup
+
+  DatabaseSecurityGroupId:
+    Description: PostgreSQL security group
+    Value: !Ref DatabaseSecurityGroup
+    Export:
+      Name: !Sub ${AWS::StackName}-DatabaseSecurityGroup

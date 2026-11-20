@@ -1,5 +1,6 @@
 alembic==1.20.0
 annotated-doc==0.0.5
+boto3
 annotated-types==0.8.0
 anyio==4.15.1
 asyncpg==0.32.0

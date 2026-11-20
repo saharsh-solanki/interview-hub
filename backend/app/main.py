@@ -1,8 +1,11 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from mangum import Mangum
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api import auth, users, profiles, companies, rounds, interviews, questions
+from app.database import get_db
 
 app = FastAPI(title="Interview Hub API", version="1.0.0")
 
@@ -27,4 +30,28 @@ app.include_router(questions.router)
 async def health():
     return {"status": "ok"}
 
-handler = Mangum(app)
+
+@app.get("/api/health/db")
+async def health_db(db: AsyncSession = Depends(get_db)):
+    result = await db.execute(text("SELECT 1"))
+    result.scalar()
+    return {"status": "ok", "database": "connected"}
+
+_mangum_handler = Mangum(app, api_gateway_base_path="/dev")
+
+
+def handler(event, context):
+    if event.get("action") == "migrate":
+        import asyncio
+        import os
+        from alembic.config import Config
+        from alembic import command
+
+        os.chdir(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        alembic_cfg = Config("alembic.ini")
+        command.upgrade(alembic_cfg, "head")
+        # Restore event loop for subsequent HTTP invocations in this container
+        asyncio.set_event_loop(asyncio.new_event_loop())
+        return {"status": "migrations complete"}
+
+    return _mangum_handler(event, context)

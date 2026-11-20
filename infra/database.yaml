@@ -1,0 +1,133 @@
+
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Interview Hub - PostgreSQL RDS Database
+
+Parameters:
+
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues:
+      - dev
+      - staging
+      - prod
+
+  NetworkStackName:
+    Type: String
+    Default: interview-hub-network-dev
+
+  DBInstanceClass:
+    Type: String
+    Default: db.t4g.micro
+    Description: PostgreSQL instance class
+
+  DBAllocatedStorage:
+    Type: Number
+    Default: 20
+    MinValue: 20
+
+  DBName:
+    Type: String
+    Default: interviewhub
+
+  DBUsername:
+    Type: String
+    Default: interviewhub_admin
+
+Resources:
+
+  # ------------------------------------------
+  # Database subnet group
+  # ------------------------------------------
+  PostgreSQLSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: Interview Hub private PostgreSQL subnets
+      SubnetIds:
+        - Fn::ImportValue:
+            Fn::Sub: ${NetworkStackName}-PrivateSubnetA
+
+        - Fn::ImportValue:
+            Fn::Sub: ${NetworkStackName}-PrivateSubnetB
+
+      Tags:
+        - Key: Name
+          Value: !Sub interview-hub-${Environment}-db-subnet-group
+
+  # ------------------------------------------
+  # PostgreSQL RDS Instance
+  # ------------------------------------------
+  PostgreSQLDatabase:
+    Type: AWS::RDS::DBInstance
+
+    DeletionPolicy: Snapshot
+    UpdateReplacePolicy: Snapshot
+
+    Properties:
+      DBInstanceIdentifier: !Sub interview-hub-${Environment}-postgres
+
+      Engine: postgres
+      DBInstanceClass: !Ref DBInstanceClass
+
+      AllocatedStorage: !Ref DBAllocatedStorage
+      StorageType: gp3
+      StorageEncrypted: true
+
+      DBName: !Ref DBName
+      MasterUsername: !Ref DBUsername
+
+      # RDS creates and manages the password in Secrets Manager
+      ManageMasterUserPassword: true
+
+      DBSubnetGroupName: !Ref PostgreSQLSubnetGroup
+
+      VPCSecurityGroups:
+        - Fn::ImportValue:
+            Fn::Sub: ${NetworkStackName}-DatabaseSecurityGroup
+
+      PubliclyAccessible: false
+      Port: '5432'
+
+      # Development: one DB instance, not Multi-AZ
+      MultiAZ: false
+
+      BackupRetentionPeriod: 7
+      DeletionProtection: true
+
+      AutoMinorVersionUpgrade: true
+
+      CopyTagsToSnapshot: true
+
+      Tags:
+        - Key: Name
+          Value: !Sub interview-hub-${Environment}-postgres
+
+Outputs:
+
+  DatabaseEndpoint:
+    Description: PostgreSQL hostname
+    Value: !GetAtt PostgreSQLDatabase.Endpoint.Address
+    Export:
+      Name: !Sub ${AWS::StackName}-DatabaseEndpoint
+
+  DatabasePort:
+    Description: PostgreSQL port
+    Value: !GetAtt PostgreSQLDatabase.Endpoint.Port
+    Export:
+      Name: !Sub ${AWS::StackName}-DatabasePort
+
+  DatabaseName:
+    Description: Application database name
+    Value: !Ref DBName
+    Export:
+      Name: !Sub ${AWS::StackName}-DatabaseName
+
+  DatabaseSecretArn:
+    Description: RDS-managed master credentials secret
+    Value: !GetAtt PostgreSQLDatabase.MasterUserSecret.SecretArn
+    Export:
+      Name: !Sub ${AWS::StackName}-DatabaseSecretArn
+
+  DatabaseInstanceId:
+    Description: RDS database instance
+    Value: !Ref PostgreSQLDatabase

@@ -1,0 +1,65 @@
+name: Deploy Backend
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'backend/**'
+      - 'infra/template.yaml'
+      - '.github/workflows/deploy-backend.yml'
+
+env:
+  AWS_REGION: ap-southeast-2
+  STACK_NAME: interview-hub-backend-dev
+  ROLE_ARN: arn:aws:iam::970085859819:role/interview-hub-github-deploy
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - uses: aws-actions/setup-sam@v2
+        with:
+          use-installer: true
+
+      - name: SAM Build
+        run: sam build --template-file infra/template.yaml --use-container
+
+      - name: SAM Deploy
+        run: |
+          sam deploy \
+            --template-file .aws-sam/build/template.yaml \
+            --stack-name ${{ env.STACK_NAME }} \
+            --region ${{ env.AWS_REGION }} \
+            --resolve-s3 \
+            --capabilities CAPABILITY_IAM \
+            --no-confirm-changeset \
+            --no-fail-on-empty-changeset
+
+      - name: Run Database Migrations
+        run: |
+          FUNCTION_NAME=$(aws cloudformation describe-stack-resource \
+            --stack-name ${{ env.STACK_NAME }} \
+            --logical-resource-id InterviewHubFunction \
+            --query 'StackResourceDetail.PhysicalResourceId' \
+            --output text)
+
+          aws lambda invoke \
+            --function-name "$FUNCTION_NAME" \
+            --payload '{"action":"migrate"}' \
+            --cli-binary-format raw-in-base64-out \
+            /tmp/migration-response.json
+
+          cat /tmp/migration-response.json
+          grep -q '"status"' /tmp/migration-response.json

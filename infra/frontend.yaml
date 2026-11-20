@@ -1,26 +1,68 @@
 
 AWSTemplateFormatVersion: '2010-09-09'
-Description: Interview Hub frontend S3 infrastructure
+
+Description: Interview Hub React frontend - S3 Static Website Hosting
 
 Resources:
   FrontendBucket:
     Type: AWS::S3::Bucket
     DeletionPolicy: Retain
     UpdateReplacePolicy: Retain
+
     Properties:
+      # Block public ACLs but allow public-read bucket policy
       PublicAccessBlockConfiguration:
         BlockPublicAcls: true
-        BlockPublicPolicy: true
         IgnorePublicAcls: true
-        RestrictPublicBuckets: true
+        BlockPublicPolicy: false
+        RestrictPublicBuckets: false
+
+      # Enable S3 encryption
       BucketEncryption:
         ServerSideEncryptionConfiguration:
           - ServerSideEncryptionByDefault:
               SSEAlgorithm: AES256
+
+      # Enable object versioning
       VersioningConfiguration:
         Status: Enabled
 
+      # Enable static website hosting
+      WebsiteConfiguration:
+        IndexDocument: index.html
+        ErrorDocument: index.html
+
+  # Allow public read access to the React build files
+  FrontendBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+
+    Properties:
+      Bucket: !Ref FrontendBucket
+
+      PolicyDocument:
+        Version: '2012-10-17'
+
+        Statement:
+          - Sid: PublicReadOnly
+            Effect: Allow
+
+            Principal: '*'
+
+            Action:
+              - s3:GetObject
+
+            Resource: !Sub '${FrontendBucket.Arn}/*'
+
 Outputs:
+
   BucketName:
-    Description: Frontend S3 bucket
+    Description: Existing frontend S3 bucket name
     Value: !Ref FrontendBucket
+
+  WebsiteURL:
+    Description: React frontend HTTP website URL
+    Value: !GetAtt FrontendBucket.WebsiteURL
+
+  WebsiteEndpoint:
+    Description: S3 static website endpoint
+    Value: !GetAtt FrontendBucket.WebsiteURL

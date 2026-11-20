@@ -1,4 +1,4 @@
-const API_BASE = "https://tqkmh2t9ph.execute-api.ap-southeast-2.amazonaws.com/api";
+const API_BASE = import.meta.env.VITE_API_URL || "https://vjn1hmopbj.execute-api.ap-southeast-2.amazonaws.com/dev/api";
 
 function toCamel(s) {
   return s.replace(/_([a-z])/g, (_, c) => c.toUpperCase());
